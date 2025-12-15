@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function Toolbar({ columns, onFilterApply, onReset }) {
+export default function Toolbar({ columns, onFilterApply, onReset, onResetLayout, onUndo, onRedo, canUndo, canRedo }) {
     const [col, setCol] = useState('');
     const [op, setOp] = useState('>');
     const [val, setVal] = useState('');
@@ -84,7 +84,7 @@ export default function Toolbar({ columns, onFilterApply, onReset }) {
                 <button className="dropbtn" style={{ background: '#f8f9fa', color: '#333', border: '1px solid #ccc', minWidth: '120px', textAlign: 'left' }}>
                     {filterLabel}
                 </button>
-                <div className="dropdown-content" style={{ display: 'none', position: 'absolute', right: 0, backgroundColor: '#f9f9f9', minWidth: '160px', boxShadow: '0px 8px 16px 0px rgba(0,0,0,0.2)', zIndex: 1 }}>
+                <div className="dropdown-content" style={{ display: 'none', position: 'absolute', right: 0, backgroundColor: '#f9f9f9', minWidth: '160px', boxShadow: '0px 8px 16px 0px rgba(0,0,0,0.2)', zIndex: 1000 }}>
                     <a onClick={() => handlePreset('SORT_ASC')}>Sort Ascending</a>
                     <a onClick={() => handlePreset('SORT_DESC')}>Sort Descending</a>
                     <a onClick={() => handlePreset('MISSING')}>Missing Data</a>
@@ -93,7 +93,37 @@ export default function Toolbar({ columns, onFilterApply, onReset }) {
                 </div>
             </div>
 
-            <button onClick={handleReset} className="reset-btn" style={{ marginLeft: '10px' }}>Reset</button>
+            {onUndo && (
+                <button
+                    onClick={onUndo}
+                    disabled={!canUndo}
+                    style={{ marginLeft: '10px', opacity: canUndo ? 1 : 0.5, cursor: canUndo ? 'pointer' : 'not-allowed' }}
+                    title="Undo (Ctrl+Z)"
+                >
+                    ↩️ Undo
+                </button>
+            )}
+            {onRedo && (
+                <button
+                    onClick={onRedo}
+                    disabled={!canRedo}
+                    style={{ marginLeft: '5px', opacity: canRedo ? 1 : 0.5, cursor: canRedo ? 'pointer' : 'not-allowed' }}
+                    title="Redo (Ctrl+Y)"
+                >
+                    ↪️ Redo
+                </button>
+            )}
+            {onResetLayout && (
+                <button
+                    onClick={onResetLayout}
+                    style={{ marginLeft: '10px' }}
+                    title="Reset column widths"
+                >
+                    ↻ Reset Layout
+                </button>
+            )}
+
+            <button onClick={handleReset} className="reset-btn" style={{ marginLeft: '10px' }}>Reset Filters</button>
         </div>
     );
 }

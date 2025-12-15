@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import DataGrid from './components/DataGrid';
 import Toolbar from './components/Toolbar';
 import CommandBar from './components/CommandBar';
+import ProgressBar from './components/ProgressBar';
 import './styles.css';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -14,11 +15,15 @@ function App() {
   const [data, setData] = useState([]);
   const [columns, setColumns] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [fileName, setFileName] = useState('');
+  const [loadMetrics, setLoadMetrics] = useState({ rowCount: 0, colCount: 0, loadTime: 0 });
   /* Visibility State - Combined */
   const [areToolsVisible, setAreToolsVisible] = useState(true);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ASC' });
   const [selectionStats, setSelectionStats] = useState({ count: 0 });
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   // Worker Reference
   const workerRef = useRef(null);
@@ -26,12 +31,17 @@ function App() {
   // DataGrid Reference (for resetLayout)
   const dataGridRef = useRef(null);
 
+  // Load start time for metrics
+  const loadStartTime = useRef(null);
+
   // --- Handlers (Defined before useEffect to be safe) ---
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setLoading(true);
+    setLoadProgress(0);
+    loadStartTime.current = performance.now();
     setFileName(file.name);
 
     // Read buffer and send to worker
@@ -94,8 +104,9 @@ function App() {
 
   const handleCellUpdate = (rowIndex, col, value) => {
     if (workerRef.current) {
+      // console.log("Sending CELL_EDIT", rowIndex, col, value);
       workerRef.current.postMessage({
-        type: 'UPDATE_CELL',
+        type: 'CELL_EDIT',
         payload: { rowIndex, col, value }
       });
     }
@@ -119,6 +130,18 @@ function App() {
     }
   };
 
+  const handleUndo = () => {
+    if (workerRef.current && canUndo) {
+      workerRef.current.postMessage({ type: 'UNDO' });
+    }
+  };
+
+  const handleRedo = () => {
+    if (workerRef.current && canRedo) {
+      workerRef.current.postMessage({ type: 'REDO' });
+    }
+  };
+
   useEffect(() => {
     // Initialize Worker
     workerRef.current = new GridWorker();
@@ -127,12 +150,29 @@ function App() {
     workerRef.current.onmessage = (e) => {
       const { type, payload } = e.data;
       if (type === 'DATA_LOADED' || type === 'DATA_UPDATED') {
-        setData(payload);
-        if (payload.length > 0) {
-          setColumns(Object.keys(payload[0]));
+        if (type === 'DATA_LOADED') {
+          const loadTime = loadStartTime.current ? (performance.now() - loadStartTime.current) / 1000 : 0;
+          setData(payload);
+          setColumns(Object.keys(payload[0] || {}).map(String));
+          setLoadMetrics({
+            rowCount: payload.length,
+            colCount: Object.keys(payload[0] || {}).length,
+            loadTime: loadTime.toFixed(2)
+          });
+          setLoading(false);
+          setLoadProgress(100);
+        } else if (type === 'DATA_UPDATED') {
+          setData(payload);
+          if (payload.length > 0) {
+            setColumns(Object.keys(payload[0] || {}).map(String));
+          }
         }
-        setLoading(false);
       }
+
+      if (type === 'LOAD_PROGRESS') {
+        setLoadProgress(payload.progress || 0);
+      }
+
       if (type === 'EXPORT_READY') {
         const { content, format, mimeType } = payload;
         const blob = new Blob([content], { type: mimeType });
@@ -156,6 +196,12 @@ function App() {
         // Save to DB
         updateSessionData(payloadData);
       }
+
+      if (type === 'HISTORY_STATE') {
+        setCanUndo(payload.canUndo);
+        setCanRedo(payload.canRedo);
+      }
+
       if (type === 'ERROR') {
         alert(`Error: ${payload}`);
         setLoading(false);
@@ -215,7 +261,21 @@ function App() {
       refreshSession();
     }, 5000); // 5 seconds
 
+    // Keyboard shortcuts for undo/redo
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
     return () => {
+      document.removeEventListener('keydown', handleKeyDown);
       clearInterval(intervalId);
       if (workerRef.current) workerRef.current.terminate();
     };
@@ -247,26 +307,35 @@ function App() {
               />
             </div>
 
+            {fileName && (
+              <div style={{ fontSize: '14px', color: '#454f5b', fontWeight: '500' }}>
+                {fileName}
+                {loadMetrics.rowCount > 0 && (
+                  <span style={{ marginLeft: '12px', color: '#6b7280', fontSize: '12px' }}>
+                    {loadMetrics.rowCount.toLocaleString()} rows × {loadMetrics.colCount} cols
+                    {loadMetrics.loadTime > 0 && (
+                      <span style={{ marginLeft: '8px' }}>
+                        ⚡ {loadMetrics.loadTime}s
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+
             {data.length > 0 && (
               <>
                 {/* Combined Toggle */}
                 <button
                   onClick={() => setAreToolsVisible(!areToolsVisible)}
-                  style={{ minWidth: '140px' }} // Ensure consistent width
+                  style={{ minWidth: '140px' }}
                 >
                   {areToolsVisible ? 'Hide Tools' : 'Show Tools'}
                 </button>
 
-                {/* Reset Layout Button */}
-                <button
-                  onClick={() => dataGridRef.current?.resetLayout()}
-                  style={{ minWidth: '140px' }}
-                  title="Reset column widths to default"
-                >
-                  ↻ Reset Layout
-                </button>
 
-                {/* Export Dropdown - Aligned */}
+
+                {/* Export Dropdown */}
                 <select
                   onChange={(e) => {
                     if (e.target.value) {
@@ -281,7 +350,7 @@ function App() {
                     background: '#f8f9fa',
                     cursor: 'pointer',
                     fontWeight: '500',
-                    height: '36px' // Match button height
+                    height: '36px'
                   }}
                   defaultValue=""
                 >
@@ -291,8 +360,6 @@ function App() {
                   <option value="sql">SQL Insert</option>
                   <option value="md">Markdown</option>
                 </select>
-
-                {/* Sort Controls Validation - Removed as per request */}
               </>
             )}
           </div>
@@ -301,7 +368,16 @@ function App() {
         {areToolsVisible && (
           <>
             <div className="control-row">
-              <Toolbar columns={columns} onFilterApply={handleFilterChange} onReset={handleReset} />
+              <Toolbar
+                columns={columns}
+                onFilterApply={handleFilterChange}
+                onReset={handleReset}
+                onResetLayout={() => dataGridRef.current?.resetLayout()}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={canUndo}
+                canRedo={canRedo}
+              />
             </div>
             <div className="control-row">
               <CommandBar onCommand={handleCommand} />
@@ -311,6 +387,8 @@ function App() {
       </div>
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {loading && <ProgressBar progress={loadProgress} message={`Loading ${fileName}...`} />}
+
         <ErrorBoundary>
           {loading ? (
             <div style={{
@@ -339,7 +417,7 @@ function App() {
           )}
         </ErrorBoundary>
       </main>
-    </div>
+    </div >
   );
 }
 export default App;

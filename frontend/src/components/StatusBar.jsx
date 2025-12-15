@@ -46,7 +46,7 @@ export default function StatusBar({ stats, onResetLayout }) {
             {/* Stats */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    📊 <strong>{stats.rows}</strong> row{stats.rows !== 1 ? 's' : ''} × <strong>{stats.cells}</strong> cells
+                    <strong>{stats.rows}</strong> row{stats.rows !== 1 ? 's' : ''} × <strong>{stats.cells}</strong> cells
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
