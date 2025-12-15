@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import DataGrid from './components/DataGrid';
 import Toolbar from './components/Toolbar';
 import CommandBar from './components/CommandBar';
+import StatusBar from './components/StatusBar';
 import './styles.css';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -18,6 +19,7 @@ function App() {
   /* Visibility State - Combined */
   const [areToolsVisible, setAreToolsVisible] = useState(true);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ASC' });
+  const [selectionStats, setSelectionStats] = useState({ count: 0 });
 
   // Worker Reference
   const workerRef = useRef(null);
@@ -85,6 +87,33 @@ function App() {
   const handleReset = () => {
     if (workerRef.current) {
       workerRef.current.postMessage({ type: 'RESET' });
+    }
+  };
+
+  const handleCellUpdate = (rowIndex, col, value) => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({
+        type: 'UPDATE_CELL',
+        payload: { rowIndex, col, value }
+      });
+    }
+  };
+
+  const handleDeleteRow = (rowIndex) => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({
+        type: 'DELETE_ROW',
+        payload: { rowIndex }
+      });
+    }
+  };
+
+  const handleDeleteRows = (rowIndices) => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({
+        type: 'DELETE_ROWS',
+        payload: { rowIndices }
+      });
     }
   };
 
@@ -229,6 +258,7 @@ function App() {
       </div>
 
       <main>
+        <StatusBar stats={selectionStats} />
         <ErrorBoundary>
           {loading ? (
             <div style={{
@@ -244,7 +274,15 @@ function App() {
               Processing...
             </div>
           ) : (
-            <DataGrid data={data} columns={columns} onSort={handleSort} />
+            <DataGrid
+              data={data}
+              columns={columns}
+              onSort={handleSort}
+              onCellEdit={handleCellUpdate}
+              onSelectionChange={setSelectionStats}
+              onDeleteRow={handleDeleteRow}
+              onDeleteRows={handleDeleteRows}
+            />
           )}
         </ErrorBoundary>
       </main>
