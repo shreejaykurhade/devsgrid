@@ -1,4 +1,4 @@
-const DB_NAME = 'FastGridDB';
+const DB_NAME = 'DevsGridDB';
 const STORE_NAME = 'session_store';
 const DB_VERSION = 1;
 
