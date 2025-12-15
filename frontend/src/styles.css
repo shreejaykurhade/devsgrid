@@ -1,0 +1,271 @@
+:root {
+  --neo-black: #000000;
+  --neo-white: #ffffff;
+  --neo-bg: #87ceeb;
+  --neo-yellow: #ffde59;
+  --neo-pink: #ff6b6b;
+  --neo-green: #98ff98;
+  --neo-shadow: 4px 4px 0px 0px #000000;
+  --neo-border: 3px solid #000000;
+}
+
+* {
+  box-sizing: border-box;
+  /* CRITICAL FIX for 100% width/height */
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Courier New', Courier, monospace;
+  /* Neo-Brutalist Font */
+  background-color: var(--neo-bg);
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  /* CRITICAL: Prevent body scroll */
+  position: fixed;
+  /* CRITICAL: Prevent mobile bounce */
+  color: var(--neo-black);
+  /* Moved from old body rule */
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--neo-white);
+}
+
+/* Header - Fixed Top */
+header {
+  padding: 15px 20px;
+  background: var(--neo-white);
+  border-bottom: var(--neo-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  /* Never collapse */
+  z-index: 30;
+}
+
+header h1 {
+  font-size: 1.5rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  margin: 0;
+  background: var(--neo-yellow);
+  padding: 5px 10px;
+  border: var(--neo-border);
+  box-shadow: var(--neo-shadow);
+}
+
+header p {
+  font-weight: 700;
+  background: var(--neo-green);
+  padding: 5px 10px;
+  border: var(--neo-border);
+  box-shadow: var(--neo-shadow);
+  margin: 0;
+}
+
+/* Controls - Fixed Below Header, Centered */
+.controls {
+  padding: 15px;
+  background: #f0f0f0;
+  border-bottom: var(--neo-border);
+  max-height: 100vh;
+}
+
+.header-container {
+  border-bottom: var(--corp-border);
+  background: var(--corp-white);
+  padding: 0;
+  box-shadow: var(--corp-shadow);
+  z-index: 10;
+}
+
+.toolbar,
+.command-bar {
+  background: var(--corp-white);
+  padding: 8px 16px;
+  /* Reduced Padding */
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  /* Allow wrapping */
+}
+
+.command-bar {
+  border-top: var(--corp-border);
+  background: #f9fafb;
+  /* Slightly darker for command area */
+  padding: 6px 16px;
+  /* Even smaller for command bar */
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+
+  .toolbar,
+  .command-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .toolbar select,
+  .toolbar input,
+  .toolbar button,
+  .command-bar input,
+  .command-bar button {
+    width: 100% !important;
+    /* Force full width on mobile */
+    max-width: none;
+  }
+
+  /* Toolbar specific tweaks */
+  .toolbar {
+    border-bottom: var(--corp-border);
+  }
+}
+
+/* Typography */
+h1 {
+  font-size: 1rem;
+  /* Smaller Title */
+  margin: 0;
+  padding: 8px 16px;
+  font-weight: 600;
+  color: var(--corp-black);
+  background: #f4f6f8;
+}
+
+/* Inputs */
+input[type="text"],
+select,
+option,
+.command-bar input {
+  padding: 8px 12px;
+  border: 1px solid #c4cdd5;
+  border-radius: 4px;
+  /* Rounded corners for modern feel */
+  box-shadow: none;
+  font-family: inherit;
+  font-weight: 400;
+  outline: none;
+  color: var(--corp-text) !important;
+  background-color: var(--corp-white) !important;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+input[type="text"]:focus,
+select:focus {
+  border-color: var(--corp-accent);
+  background: var(--corp-white) !important;
+  box-shadow: 0 0 0 2px rgba(0, 82, 204, 0.1);
+}
+
+/* Buttons */
+button {
+  background-color: var(--corp-white);
+  color: var(--corp-text);
+  border: 1px solid #c4cdd5;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+  padding: 8px 16px;
+  font-weight: 500;
+  text-transform: none;
+  /* No uppercase */
+  cursor: pointer;
+  transition: all 0.2s;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+button:hover {
+  background-color: #f4f6f8;
+  border-color: #919eab;
+  transform: none;
+  box-shadow: none;
+}
+
+button:active {
+  background-color: #dfe3e8;
+  transform: translateY(1px);
+}
+
+.reset-btn {
+  background-color: #f44336 !important;
+  /* Red for reset, but flatter */
+  color: white !important;
+  border: none !important;
+}
+
+.reset-btn:hover {
+  background-color: #d32f2f !important;
+}
+
+/* File Input Hack */
+.file-input-wrapper {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+}
+
+.file-input-wrapper input[type=file] {
+  font-size: 100px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.neo-box {
+  padding: 40px;
+  background: var(--corp-white);
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  text-align: center;
+  font-weight: 500;
+  color: var(--corp-text-secondary);
+  margin: 60px auto;
+  max-width: 500px;
+}
+
+main {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  background: var(--corp-white);
+}
+
+/* Resize Handle */
+.resize-handle {
+  transition: background-color 0.2s;
+}
+
+.resize-handle:hover {
+  background-color: var(--corp-accent);
+  opacity: 1;
+}
+
+.resize-handle:active {
+  background-color: var(--corp-accent);
+}
