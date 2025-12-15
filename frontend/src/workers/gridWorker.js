@@ -36,6 +36,26 @@ self.onmessage = (e) => {
             self.postMessage({ type: 'DATA_LOADED', payload: rows });
         }
 
+        if (type === 'LOAD_EXISTING_DATA') {
+            // Load persisted data (JSON array) directly
+            const rows = payload; // is already the array
+
+            // Since it's edited state, we might treat it as 'currentData',
+            // BUT we might lack the 'original' rawData if we don't load file first.
+            // Strategy: App should Load File FIRST (to get rawData) then Load Existing Data (edits).
+            // OR: If we only care about current state, just set both.
+            // User wants persistence of EDITS. 
+            // Ideally we load the file to set 'rawData' (baseline), and then apply 'currentData' (edits).
+            // But 'currentData' is the full dataset state.
+
+            currentData = rows;
+            // If we don't have rawData set, set it too? No, rawData should be from file.
+            // If rawData is empty, set it?
+            if (rawData.length === 0) rawData = JSON.parse(JSON.stringify(rows));
+
+            self.postMessage({ type: 'DATA_LOADED', payload: currentData });
+        }
+
         if (type === 'RUN_COMMAND') {
             console.log('COMMAND:', payload);
 
@@ -145,6 +165,22 @@ self.onmessage = (e) => {
             }
         }
 
+        if (type === 'CELL_EDIT') {
+            const { rowIndex, col, value } = payload;
+            if (currentData[rowIndex]) {
+                currentData[rowIndex][col] = value;
+                // Just update, don't resend full grid unless needed?
+                // App needs to know to rerender?
+                // Currently App uses virtualized, but might need signal.
+                // Assuming shared buffer or just state update?
+                // DataGrid render relies on 'data' prop.
+                // We typically send DATA_LOADED or similar after filter.
+                // For direct edit, we might just confirm.
+                // BUT we need to persist.
+                self.postMessage({ type: 'SESSION_SAVE_NEEDED' });
+            }
+        }
+
         if (type === 'DELETE_ROW') {
             const { rowIndex } = payload;
 
@@ -152,9 +188,8 @@ self.onmessage = (e) => {
                 // Remove from currentData
                 currentData.splice(rowIndex, 1);
 
-                // Note: Logic for rawData sync skipped for MVF as per previous pattern
-
-                self.postMessage({ type: 'DATA_UPDATED', payload: currentData });
+                self.postMessage({ type: 'DATA_LOADED', payload: currentData });
+                self.postMessage({ type: 'SESSION_SAVE_NEEDED' });
             }
         }
 
@@ -173,11 +208,17 @@ self.onmessage = (e) => {
             });
 
             if (deletionCount > 0) {
-                self.postMessage({ type: 'DATA_UPDATED', payload: currentData });
+                self.postMessage({ type: 'DATA_LOADED', payload: currentData });
+                self.postMessage({ type: 'SESSION_SAVE_NEEDED' });
             }
+        }
+
+        if (type === 'EXPORT_RAW_JSON') {
+            self.postMessage({ type: 'RAW_JSON_EXPORT', payload: currentData });
         }
 
     } catch (error) {
         self.postMessage({ type: 'ERROR', payload: error.message });
     }
 };
+

@@ -2,11 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import DataGrid from './components/DataGrid';
 import Toolbar from './components/Toolbar';
 import CommandBar from './components/CommandBar';
-import StatusBar from './components/StatusBar';
 import './styles.css';
 
 import ErrorBoundary from './components/ErrorBoundary';
-import { saveSession, loadSession } from './services/db';
+import { saveSession, loadSession, refreshSession, updateSessionData } from './services/db';
 
 // Import Worker using Vite's special syntax
 import GridWorker from './workers/gridWorker?worker';
@@ -23,6 +22,9 @@ function App() {
 
   // Worker Reference
   const workerRef = useRef(null);
+
+  // DataGrid Reference (for resetLayout)
+  const dataGridRef = useRef(null);
 
   // --- Handlers (Defined before useEffect to be safe) ---
   const handleFileUpload = (e) => {
@@ -145,6 +147,15 @@ function App() {
         setLoading(false);
       }
 
+      if (type === 'SESSION_SAVE_NEEDED') {
+        // Request current state to persist
+        workerRef.current.postMessage({ type: 'EXPORT_RAW_JSON' });
+      }
+      if (type === 'RAW_JSON_EXPORT') {
+        const payloadData = payload;
+        // Save to DB
+        updateSessionData(payloadData);
+      }
       if (type === 'ERROR') {
         alert(`Error: ${payload}`);
         setLoading(false);
@@ -161,10 +172,20 @@ function App() {
         if (session) {
           setLoading(true);
           setFileName(session.fileName + ' (Restored)');
+
+          // 1. Load Original File (sets rawData baseline in worker)
           workerRef.current.postMessage({
             type: 'LOAD_FILE',
             payload: { buffer: session.fileBuffer, fileName: session.fileName }
           });
+
+          // 2. If we have persisted edits, apply them (sets currentData in worker)
+          if (session.currentData) {
+            workerRef.current.postMessage({
+              type: 'LOAD_EXISTING_DATA',
+              payload: session.currentData
+            });
+          }
         }
       } catch (err) {
         console.error("Session restore failed", err);
@@ -172,7 +193,30 @@ function App() {
     };
     checkSession();
 
+    // Exposed for Reset Button
+    const handleReset = async () => {
+      try {
+        const session = await loadSession();
+        if (session) {
+          // Clear persisted edits
+          updateSessionData(null);
+          // Reload original
+          setLoading(true);
+          workerRef.current.postMessage({
+            type: 'LOAD_FILE',
+            payload: { buffer: session.fileBuffer, fileName: session.fileName }
+          });
+        }
+      } catch (e) { console.error("Reset failed", e); }
+    };
+
+    // Heartbeat: Keep session alive while tab is open
+    const intervalId = setInterval(() => {
+      refreshSession();
+    }, 5000); // 5 seconds
+
     return () => {
+      clearInterval(intervalId);
       if (workerRef.current) workerRef.current.terminate();
     };
   }, []);
@@ -211,6 +255,15 @@ function App() {
                   style={{ minWidth: '140px' }} // Ensure consistent width
                 >
                   {areToolsVisible ? 'Hide Tools' : 'Show Tools'}
+                </button>
+
+                {/* Reset Layout Button */}
+                <button
+                  onClick={() => dataGridRef.current?.resetLayout()}
+                  style={{ minWidth: '140px' }}
+                  title="Reset column widths to default"
+                >
+                  ↻ Reset Layout
                 </button>
 
                 {/* Export Dropdown - Aligned */}
@@ -258,7 +311,6 @@ function App() {
       </div>
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <StatusBar stats={selectionStats} />
         <ErrorBoundary>
           {loading ? (
             <div style={{
@@ -275,6 +327,7 @@ function App() {
             </div>
           ) : (
             <DataGrid
+              ref={dataGridRef}
               data={data}
               columns={columns}
               onSort={handleSort}

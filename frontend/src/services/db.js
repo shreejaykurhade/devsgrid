@@ -23,22 +23,46 @@ export const initDB = () => {
     });
 };
 
-export const saveSession = async (fileBuffer, fileName) => {
+export const saveSession = async (fileBuffer, fileName, currentData = null) => {
     const db = await initDB();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        const item = {
-            id: 'current_session',
-            fileBuffer,
-            fileName,
-            timestamp: Date.now()
-        };
-        const request = store.put(item);
 
-        request.onsuccess = () => resolve();
+        // We need to merge with existing if possible, or create new
+        const request = store.get('current_session');
+
+        request.onsuccess = () => {
+            const existing = request.result || {};
+            const item = {
+                id: 'current_session',
+                fileBuffer: fileBuffer || existing.fileBuffer, // Keep original if not provided
+                fileName: fileName || existing.fileName,
+                currentData: currentData, // If provided, saves edits. If null, might mean "reset" or "initial"? 
+                // Actually, initial saveSession usually has no edits.
+                timestamp: Date.now()
+            };
+            store.put(item);
+            resolve();
+        };
         request.onerror = () => reject("Failed to save session");
     });
+};
+
+export const updateSessionData = async (currentData) => {
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get('current_session');
+
+    request.onsuccess = () => {
+        const data = request.result;
+        if (data) {
+            data.currentData = currentData;
+            data.timestamp = Date.now();
+            store.put(data);
+        }
+    };
 };
 
 export const loadSession = async () => {
@@ -74,4 +98,24 @@ export const clearSession = async () => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     store.delete('current_session');
+};
+
+export const refreshSession = async () => {
+    try {
+        const db = await initDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get('current_session');
+
+        request.onsuccess = () => {
+            const data = request.result;
+            if (data) {
+                // Update timestamp only
+                data.timestamp = Date.now();
+                store.put(data);
+            }
+        };
+    } catch (e) {
+        console.error("Failed to refresh session", e);
+    }
 };

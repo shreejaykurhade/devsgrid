@@ -1,10 +1,10 @@
-import React, { useRef, useEffect, useMemo, useState } from 'react';
+import React, { useRef, useEffect, useMemo, useState, forwardRef, useImperativeHandle } from 'react';
 import useDataGridLogic from '../hooks/useDataGridLogic';
 
 const ROW_HEIGHT = 45;
 const OVERSCAN = 5;
 
-export default function DataGrid({ data, columns, onCellEdit, onSelectionChange, onDeleteRow, onDeleteRows }) {
+const DataGrid = forwardRef(({ data, columns, onCellEdit, onSelectionChange, onDeleteRow, onDeleteRows }, ref) => {
     const containerRef = useRef(null);
     const headerRef = useRef(null);
 
@@ -85,6 +85,11 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
     };
 
     const resetLayout = () => setColWidths({});
+
+    // Expose resetLayout to parent via ref
+    useImperativeHandle(ref, () => ({
+        resetLayout
+    }));
 
     useEffect(() => {
         if (!data || data.length === 0 || !columns) return;
@@ -289,18 +294,28 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
             >
                 <div style={{ display: 'flex', width: totalWidth }}>
                     {colDefs.map((col) => {
+                        const isFrozen = frozenColumns.has(col.name) && !col.isRowNumber;
                         return (
                             <div
                                 key={col.name}
-                                onContextMenu={!col.isRowNumber ? (e) => handleHeaderRightClick(e, col.name) : undefined}
+                                onContextMenu={(e) => {
+                                    // Make entire header cell right-clickable (not just text)
+                                    if (!col.isRowNumber) {
+                                        handleHeaderRightClick(e, col.name);
+                                    }
+                                }}
                                 style={{
                                     width: col.width, minWidth: col.width, height: '100%', padding: '0 12px', borderRight: '1px solid #dfe3e8',
                                     display: 'flex', alignItems: 'center', position: col.isSticky ? 'sticky' : 'relative',
                                     left: col.isSticky ? col.stickyLeft : 'auto', zIndex: col.zIndex + 10,
-                                    background: '#f4f6f8', fontWeight: '600', color: '#454f5b', fontSize: '13px', userSelect: 'none'
+                                    background: '#f4f6f8', fontWeight: '600', color: '#454f5b', fontSize: '13px', userSelect: 'none',
+                                    cursor: col.isRowNumber ? 'pointer' : 'context-menu'
                                 }}
                             >
-                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{col.name}</span>
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {isFrozen && <span style={{ fontSize: '11px' }}>🔒</span>}
+                                    {col.name}
+                                </span>
                                 {!col.isRowNumber && (
                                     <div
                                         onMouseDown={(e) => handleResizeStart(e, col.name, col.width)}
@@ -344,7 +359,7 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
                 <div style={{
                     position: 'fixed', top: contextMenu.y, left: contextMenu.x,
                     background: '#fff', border: '1px solid #c4cdd5', borderRadius: '4px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: '150px'
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 9999, minWidth: '150px'
                 }}>
                     <div onClick={toggleFreezeColumn} className="ctx-item" style={{ padding: '8px 16px', cursor: 'pointer', borderBottom: '1px solid #eee' }}>
                         {frozenColumns.has(contextMenu.column) ? '🔓 Unfreeze' : '❄️ Freeze'}
@@ -358,7 +373,7 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
                 <div style={{
                     position: 'fixed', top: rowContextMenu.y, left: rowContextMenu.x,
                     background: '#fff', border: '1px solid #c4cdd5', borderRadius: '4px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: '150px'
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 9999, minWidth: '150px'
                 }}>
                     <div style={{ padding: '8px 16px', background: '#f4f6f8', borderBottom: '1px solid #eee', fontSize: '11px', color: '#666', fontWeight: 600 }}>
                         ROW: {rowContextMenu.rowIndex + 1}
@@ -378,13 +393,8 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
                     )}
                 </div>
             )}
-
-            {hasCustomLayout && (
-                <button onClick={resetLayout} style={{
-                    position: 'absolute', top: 50, right: 20, zIndex: 200,
-                    background: '#ff5722', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer'
-                }}>Reset Layout</button>
-            )}
         </div>
     );
-}
+});
+
+export default DataGrid;

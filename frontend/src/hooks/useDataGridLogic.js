@@ -150,22 +150,44 @@ export default function useDataGridLogic(data, onCellEdit, onSelectionChange, on
             onSelectionChange({ count: 0 });
             return;
         }
+
         const numericValues = [];
+        let textCells = 0;
+        let emptyCells = 0;
+        let totalCells = 0;
+
         selectedRows.forEach(rowIndex => {
             if (data[rowIndex]) {
                 Object.values(data[rowIndex]).forEach(val => {
-                    if (typeof val === 'number') numericValues.push(val);
-                    else if (typeof val === 'string' && !isNaN(Number(val)) && val !== '') numericValues.push(Number(val));
+                    totalCells++;
+
+                    if (val === null || val === undefined || val === '' || val === 'NA') {
+                        emptyCells++;
+                    } else if (typeof val === 'number') {
+                        numericValues.push(val);
+                    } else if (typeof val === 'string' && !isNaN(Number(val)) && val !== '') {
+                        numericValues.push(Number(val));
+                    } else {
+                        textCells++;
+                    }
                 });
             }
         });
-        const count = selectedRows.size;
-        let stats = { count };
+
+        const stats = {
+            rows: selectedRows.size,
+            cells: totalCells,
+            numericCells: numericValues.length,
+            textCells,
+            emptyCells
+        };
+
         if (numericValues.length > 0) {
-            const sum = numericValues.reduce((a, b) => a + b, 0);
-            stats.sum = sum;
-            stats.avg = sum / numericValues.length;
+            stats.min = Math.min(...numericValues);
+            stats.max = Math.max(...numericValues);
+            stats.avg = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
         }
+
         onSelectionChange(stats);
     }, [selectedRows, data, onSelectionChange]);
 
