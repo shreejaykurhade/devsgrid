@@ -27,36 +27,30 @@ self.onmessage = (e) => {
                 rows = XLSX.utils.sheet_to_json(ws, { defval: "NA" });
             }
 
-            // Update State
-            rawData = rows;
-            currentData = rows;
+            // Update State - Deep clone to ensure rawData stays immutable
+            rawData = JSON.parse(JSON.stringify(rows));
+            currentData = JSON.parse(JSON.stringify(rows));
 
-            // Send back simple stats + subset? No, we need full data for virtual list usually.
-            // But for huge data, maybe we only send window? 
-            // For now, let's send full data back. React-window handles the rendering if memory allows.
-            // If millions of rows, we should implement windowing protocol (requesting range).
-            // Given "Freeze" issue is often parsing, this solves parsing freeze.
-            // Rendering freeze is solved by react-window.
-
+            console.log('FILE LOADED:', rawData.length, 'rows saved to rawData');
             self.postMessage({ type: 'DATA_LOADED', payload: rows });
         }
 
         if (type === 'RUN_COMMAND') {
-            const result = executeCommand(payload, rawData); // Always filter from Raw for "FILTER"?
+            console.log('COMMAND:', payload);
 
-            // Wait, our previous logic was:
-            // FILTER -> Subset of Raw
-            // SORT -> Reorder of Current or Raw?
+            // Determine which dataset to use
+            // Only "Missing Data" and "Has Data" preset filters use rawData (independent)
+            // Everything else (SORT, regular FILTER) uses currentData (chainable)
+            const isNAPresetFilter = payload.includes('= "NA"') || payload.includes('!= "NA"');
+            const sourceData = isNAPresetFilter ? rawData : currentData;
 
-            // Let's replicate logic:
-            // If command is "FILTER...", we filter rawData.
-            // If command is "SORT...", we sort result? Or rawData?
+            console.log('Using', isNAPresetFilter ? 'rawData' : 'currentData', '|', sourceData.length, 'rows');
 
-            // Standard: Apply transformation to rawData.
-            // Re-using executeCommand which returns a NEW array.
+            const result = executeCommand(payload, sourceData);
 
             if (Array.isArray(result)) {
                 currentData = result;
+                console.log('RESULT:', result.length, 'rows');
                 self.postMessage({ type: 'DATA_UPDATED', payload: result });
             } else {
                 // Stats or error
@@ -65,8 +59,10 @@ self.onmessage = (e) => {
         }
 
         if (type === 'RESET') {
-            currentData = rawData;
-            self.postMessage({ type: 'DATA_UPDATED', payload: rawData });
+            // Deep clone rawData to ensure currentData is independent
+            currentData = JSON.parse(JSON.stringify(rawData));
+            console.log('RESET: Restoring', rawData.length, 'rows');
+            self.postMessage({ type: 'DATA_UPDATED', payload: currentData });
         }
 
     } catch (error) {

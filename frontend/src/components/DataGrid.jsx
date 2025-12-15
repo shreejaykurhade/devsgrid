@@ -47,14 +47,6 @@ export default function DataGrid({ data, columns }) {
         }
     };
 
-    if (!data || data.length === 0) {
-        return (
-            <div className="neo-box error-box">
-                NO DATA LOADED. UPLOAD A FILE.
-            </div>
-        );
-    }
-
     // 5. Column Resizing Logic
     const [colWidths, setColWidths] = useState({});
     const resizingRef = useRef(null); // { colName, startX, startWidth }
@@ -98,6 +90,8 @@ export default function DataGrid({ data, columns }) {
 
     // 6. Calculate Layout
     const columnLayout = useMemo(() => {
+        if (!data || data.length === 0) return { columns: [], totalWidth: 0 };
+
         // Fixed Row Number Column
         const rowNumWidth = 60;
         const rowNumCol = {
@@ -146,6 +140,15 @@ export default function DataGrid({ data, columns }) {
         const layout = [rowNumCol, ...mapLayout];
         return { columns: layout, totalWidth: currentOffset };
     }, [columns, colWidths, data]);
+
+    // If no columns, definitely no file loaded (or empty file)
+    if (!columns || columns.length === 0) {
+        return (
+            <div className="neo-box error-box">
+                NO DATA LOADED. UPLOAD A FILE.
+            </div>
+        );
+    }
 
     const { columns: colDefs, totalWidth } = columnLayout;
 
@@ -269,91 +272,120 @@ export default function DataGrid({ data, columns }) {
                     background: '#ffffff'
                 }}
             >
-                {/* Scroll Phantom */}
-                <div style={{ height: totalHeight, width: totalWidth, position: 'relative' }}>
+                {data.length === 0 ? (
+                    <div style={{
+                        padding: '60px 20px',
+                        textAlign: 'center',
+                        color: '#5c6c7f',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: '100%'
+                    }}>
+                        <div style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            marginBottom: '8px',
+                            color: '#0052cc'
+                        }}>
+                            No matching records found
+                        </div>
+                        <div style={{ fontSize: '14px' }}>
+                            Try adjusting your filters or click Reset to view all data.
+                        </div>
+                    </div>
+                ) : (
+                    /* Scroll Phantom - key forces re-render when data changes */
+                    <div key={data.length} style={{ height: totalHeight, width: totalWidth, position: 'relative' }}>
 
-                    {/* Rendered Window */}
-                    {visibleRows.map((row) => {
-                        // Very subtle striping logic if desired, or plain white
-                        // Professional often uses hover, but subtle stripe helps readability
-                        const isEven = row.index % 2 === 0;
-                        const bg = isEven ? '#ffffff' : '#fcfcfc'; // Extremely subtle stripe
+                        {/* Rendered Window */}
+                        {visibleRows.map((row) => {
+                            // Very subtle striping logic if desired, or plain white
+                            // Professional often uses hover, but subtle stripe helps readability
+                            const isEven = row.index % 2 === 0;
+                            const bg = isEven ? '#ffffff' : '#fcfcfc'; // Extremely subtle stripe
 
-                        return (
-                            <div
-                                key={row.index}
-                                style={{
-                                    position: 'absolute',
-                                    top: row.top,
-                                    left: 0,
-                                    width: '100%',
-                                    height: ROW_HEIGHT,
-                                    display: 'flex',
-                                    background: bg,
-                                    borderBottom: '1px solid #f0f0f0' // Very light divider
-                                }}
-                            >
-                                {colDefs.map((col, cIndex) => {
-                                    // Special Case: Row Number Column
-                                    if (col.isRowNumber) {
+                            return (
+                                <div
+                                    key={row.index}
+                                    style={{
+                                        position: 'absolute',
+                                        top: row.top,
+                                        left: 0,
+                                        width: '100%',
+                                        height: ROW_HEIGHT,
+                                        display: 'flex',
+                                        borderBottom: '1px solid #f0f0f0', // Very light row border
+                                        background: bg,
+                                        alignItems: 'center',
+                                        boxSizing: 'border-box',
+                                        /* Hover effect can be done via CSS using a class if performance allows, 
+                                           but keeping it simple here */
+                                    }}
+                                    className="grid-row"
+                                >
+                                    {colDefs.map((col) => {
+                                        // Special Case: Row Number Column
+                                        if (col.isRowNumber) {
+                                            return (
+                                                <div
+                                                    key={col.name}
+                                                    style={{
+                                                        width: col.width,
+                                                        minWidth: col.width,
+                                                        height: '100%',
+                                                        padding: '0 12px',
+                                                        borderRight: '1px solid #dcdcdc',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center', // Center align numbers
+                                                        background: '#f8f9fa', // Slight grey bg
+                                                        fontFamily: 'inherit',
+                                                        fontSize: '12px',
+                                                        fontWeight: '600',
+                                                        color: '#6c757d', // Muted text
+                                                        userSelect: 'none'
+                                                    }}
+                                                >
+                                                    {row.index + 1}
+                                                </div>
+                                            );
+                                        }
+
+                                        const rawValue = row.data[col.name];
+                                        const isMissing = rawValue === undefined || rawValue === null || rawValue === '';
+
                                         return (
                                             <div
-                                                key={cIndex}
+                                                key={col.name}
                                                 style={{
                                                     width: col.width,
-                                                    minWidth: col.width,
-                                                    height: '100%',
+                                                    minWidth: col.width, // Enforce strict width
                                                     padding: '0 12px',
-                                                    borderRight: '1px solid #dcdcdc',
+                                                    fontSize: '13px',
+                                                    color: isMissing ? '#d32f2f' : '#212b36', // High contrast text
+                                                    fontWeight: isMissing ? '600' : '400',
+                                                    fontStyle: isMissing ? 'italic' : 'normal',
+                                                    overflow: 'hidden',
+                                                    whiteSpace: 'nowrap',
+                                                    textOverflow: 'ellipsis',
+                                                    height: '100%',
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    justifyContent: 'center', // Center align numbers
-                                                    background: '#f8f9fa', // Slight grey bg
-                                                    fontFamily: 'inherit',
-                                                    fontSize: '12px',
-                                                    fontWeight: '600',
-                                                    color: '#6c757d', // Muted text
-                                                    userSelect: 'none'
+                                                    borderRight: '1px solid transparent' // Placeholder to match header border space if needed
                                                 }}
+                                                title={!isMissing ? String(rawValue) : 'Missing Data'}
                                             >
-                                                {row.index + 1}
+                                                {isMissing ? 'NA' : String(rawValue)}
                                             </div>
                                         );
-                                    }
-
-                                    const rawValue = row.data[col.name];
-                                    const isMissing = rawValue === undefined || rawValue === null || rawValue === '';
-
-                                    return (
-                                        <div
-                                            key={cIndex}
-                                            style={{
-                                                width: col.width,
-                                                minWidth: col.width,
-                                                height: '100%',
-                                                padding: '0 12px',
-                                                borderRight: '1px solid #f0f0f0',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                fontFamily: 'inherit',
-                                                fontSize: '13px',
-                                                fontWeight: isMissing ? '600' : '400',
-                                                color: isMissing ? '#d32f2f' : '#212b36',
-                                                fontStyle: isMissing ? 'italic' : 'normal',
-                                                whiteSpace: 'nowrap',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis'
-                                            }}
-                                            title={!isMissing ? String(rawValue) : 'Missing Data'}
-                                        >
-                                            {isMissing ? 'NA' : String(rawValue)}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        );
-                    })}
-                </div>
+                                    })}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         </div>
     );

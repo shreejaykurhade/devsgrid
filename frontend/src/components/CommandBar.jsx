@@ -11,8 +11,9 @@ export default function CommandBar({ onCommand }) {
 
     return (
         <div className="command-bar">
-            <span>&gt;</span>
             <input
+                id="cli-input"
+                name="cli-input"
                 type="text"
                 value={cmd}
                 onChange={e => setCmd(e.target.value)}

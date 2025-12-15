@@ -11,28 +11,43 @@ export function executeCommand(cmd, dataset) {
         // Very basic parsing
         const col = parts[1];
         const op = parts[2];
-        const val = parts.slice(3).join(" "); // allow spaces in value if simple
+        let val = parts.slice(3).join(" "); // allow spaces in value if simple
+
+        // Strip quotes if present
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+        }
 
         // Naively handle number conversion
         const numericVal = Number(val);
         const finalVal = isNaN(numericVal) ? val : numericVal;
 
         return rows.filter(row => {
-            if (row[col] === "NA") return false;
-
             const rowVal = row[col];
+
+            // Special handling for NA checks
+            if (val === "NA") {
+                if (op === "=" || op === "==") return rowVal === "NA" || rowVal === null || rowVal === undefined || rowVal === "";
+                if (op === "!=" || op === "!==") return rowVal !== "NA" && rowVal !== null && rowVal !== undefined && rowVal !== "";
+            }
+
+            // Skip NA values for other operations
+            if (rowVal === "NA" || rowVal === null || rowVal === undefined) return false;
+
             // Handle numeric comparison if both are numbers
             if (typeof rowVal === 'number' && typeof finalVal === 'number') {
                 if (op === ">") return rowVal > finalVal;
                 if (op === "<") return rowVal < finalVal;
-                if (op === "=") return rowVal == finalVal;
+                if (op === "=" || op === "==") return rowVal == finalVal;
+                if (op === "!=" || op === "!==") return rowVal != finalVal;
                 if (op === ">=") return rowVal >= finalVal;
                 if (op === "<=") return rowVal <= finalVal;
             }
 
             // Fallback or string comparison
-            if (op === "=") return rowVal == finalVal;
-            if (op === "contains") return String(rowVal).includes(String(finalVal));
+            if (op === "=" || op === "==") return String(rowVal).toLowerCase() === String(finalVal).toLowerCase();
+            if (op === "!=" || op === "!==") return String(rowVal).toLowerCase() !== String(finalVal).toLowerCase();
+            if (op === "contains") return String(rowVal).toLowerCase().includes(String(finalVal).toLowerCase());
 
             // Basic lex sort for strings
             if (op === ">") return rowVal > finalVal;
@@ -43,8 +58,14 @@ export function executeCommand(cmd, dataset) {
     }
 
     if (command === "SORT") {
-        // Format: SORT col DESC/ASC
-        const col = parts[1];
+        // Format: SORT "col" DESC/ASC or SORT col DESC/ASC
+        let col = parts[1];
+
+        // Strip quotes if present
+        if ((col.startsWith('"') && col.endsWith('"')) || (col.startsWith("'") && col.endsWith("'"))) {
+            col = col.slice(1, -1);
+        }
+
         const direction = parts[2] ? parts[2].toUpperCase() : "ASC";
 
         return [...rows].sort((a, b) => {

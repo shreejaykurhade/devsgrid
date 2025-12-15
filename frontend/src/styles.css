@@ -208,14 +208,13 @@ button:active {
 }
 
 .reset-btn {
-  background-color: #f44336 !important;
-  /* Red for reset, but flatter */
-  color: white !important;
-  border: none !important;
+  background-color: #e0e0e0 !important;
+  color: #333 !important;
+  border: 1px solid #ccc !important;
 }
 
 .reset-btn:hover {
-  background-color: #d32f2f !important;
+  background-color: #d5d5d5 !important;
 }
 
 /* File Input Hack */
@@ -266,6 +265,21 @@ main {
   opacity: 1;
 }
 
-.resize-handle:active {
-  background-color: var(--corp-accent);
+
+/* Dropdown Styles */
+.dropdown:hover .dropdown-content {
+  display: block !important;
+}
+
+.dropdown-content a {
+  color: black;
+  padding: 12px 16px;
+  text-decoration: none;
+  display: block;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.dropdown-content a:hover {
+  background-color: #f1f1f1;
 }

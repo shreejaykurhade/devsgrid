@@ -15,9 +15,78 @@ function App() {
   const [columns, setColumns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState('');
+  /* Visibility State - Combined */
+  const [areToolsVisible, setAreToolsVisible] = useState(true);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ASC' });
 
   // Worker Reference
   const workerRef = useRef(null);
+
+  // --- Handlers (Defined before useEffect to be safe) ---
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setLoading(true);
+    setFileName(file.name);
+
+    // Read buffer and send to worker
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const buffer = evt.target.result;
+
+      // Save to DB
+      saveSession(buffer, file.name).catch(err => console.error("Save failed", err));
+
+      if (workerRef.current) {
+        workerRef.current.postMessage({
+          type: 'LOAD_FILE',
+          payload: { buffer, fileName: file.name }
+        });
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleCommand = (cmd) => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'RUN_COMMAND', payload: cmd });
+    }
+  };
+
+  const handleFilterChange = (filter) => {
+    // Special handling for non-filter ops coming from Toolbar
+    if (filter.op === 'SORT') {
+      if (!filter.col) return alert("Select a column first.");
+      handleCommand(`SORT "${filter.col}" ${filter.val}`);
+      return;
+    }
+    if (filter.op === 'TRIM') {
+      if (!filter.col) return alert("Select a column first.");
+      handleCommand(`TRIM ${filter.col}`);
+      return;
+    }
+
+    if (!filter.col || !filter.op) return;
+    // Allow empty val for exact matches (e.g. searching for blanks)
+    const cmd = `FILTER ${filter.col} ${filter.op} "${filter.val}"`;
+    handleCommand(cmd);
+  };
+
+  const handleSort = (colName) => {
+    let direction = 'ASC';
+    if (sortConfig.key === colName && sortConfig.direction === 'ASC') {
+      direction = 'DESC';
+    }
+    setSortConfig({ key: colName, direction });
+    handleCommand(`SORT "${colName}" ${direction}`);
+  };
+
+  const handleReset = () => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'RESET' });
+    }
+  };
 
   useEffect(() => {
     // Initialize Worker
@@ -33,6 +102,20 @@ function App() {
         }
         setLoading(false);
       }
+      if (type === 'EXPORT_READY') {
+        const { content, format, mimeType } = payload;
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `export.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setLoading(false);
+      }
+
       if (type === 'ERROR') {
         alert(`Error: ${payload}`);
         setLoading(false);
@@ -61,66 +144,88 @@ function App() {
     checkSession();
 
     return () => {
-      workerRef.current.terminate();
+      if (workerRef.current) workerRef.current.terminate();
     };
   }, []);
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setLoading(true);
-    setFileName(file.name);
-
-    // Read buffer and send to worker
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      const buffer = evt.target.result;
-
-      // Save to DB
-      saveSession(buffer, file.name).catch(err => console.error("Save failed", err));
-
-      workerRef.current.postMessage({
-        type: 'LOAD_FILE',
-        payload: { buffer, fileName: file.name }
-      });
-      // Note: we transfer buffer if possible for performance, but overhead is okay for now
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  const handleCommand = (cmd) => {
-    workerRef.current.postMessage({ type: 'RUN_COMMAND', payload: cmd });
-  };
-
-  const handleFilterChange = (filter) => {
-    if (!filter.col || !filter.op || filter.val === '') return;
-    const cmd = `FILTER ${filter.col} ${filter.op} ${filter.val}`;
-    handleCommand(cmd);
-  };
-
-  const handleReset = () => {
-    workerRef.current.postMessage({ type: 'RESET' });
+  /* Alignment Styles */
+  const controlRowStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap',
+    padding: '10px 0' // Add some vertical breathing room
   };
 
   return (
     <div className="app-container">
-      {/* Header Removed as per request */}
-
       <div className="controls">
-        <div className="control-row">
-          <div className="upload-section">
+        <div className="control-row" style={{ ...controlRowStyle, justifyContent: 'space-between' }}>
+
+          <div className="upload-section" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div className="file-input-wrapper">
               <button className="btn-upload">📂 Upload Data</button>
-              <input type="file" onChange={handleFileUpload} accept=".csv, .xlsx, .xls, .json" />
+              <input
+                type="file"
+                id="file-upload"
+                name="file-upload"
+                onChange={handleFileUpload}
+                accept=".csv, .xlsx, .xls, .json"
+              />
             </div>
+
+            {data.length > 0 && (
+              <>
+                {/* Combined Toggle */}
+                <button
+                  onClick={() => setAreToolsVisible(!areToolsVisible)}
+                  style={{ minWidth: '140px' }} // Ensure consistent width
+                >
+                  {areToolsVisible ? 'Hide Tools' : 'Show Tools'}
+                </button>
+
+                {/* Export Dropdown - Aligned */}
+                <select
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      handleCommand(`EXPORT ${e.target.value}`);
+                      e.target.value = '';
+                    }
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '4px',
+                    border: '1px solid #ccc',
+                    background: '#f8f9fa',
+                    cursor: 'pointer',
+                    fontWeight: '500',
+                    height: '36px' // Match button height
+                  }}
+                  defaultValue=""
+                >
+                  <option value="" disabled>⬇ Export Data</option>
+                  <option value="json">JSON</option>
+                  <option value="csv">CSV</option>
+                  <option value="sql">SQL Insert</option>
+                  <option value="md">Markdown</option>
+                </select>
+
+                {/* Sort Controls Validation - Removed as per request */}
+              </>
+            )}
           </div>
-          <Toolbar columns={columns} onFilterApply={handleFilterChange} onReset={handleReset} />
         </div>
 
-        <div className="control-row">
-          <CommandBar onCommand={handleCommand} />
-        </div>
+        {areToolsVisible && (
+          <>
+            <div className="control-row">
+              <Toolbar columns={columns} onFilterApply={handleFilterChange} onReset={handleReset} />
+            </div>
+            <div className="control-row">
+              <CommandBar onCommand={handleCommand} />
+            </div>
+          </>
+        )}
       </div>
 
       <main>
@@ -139,12 +244,11 @@ function App() {
               Processing...
             </div>
           ) : (
-            <DataGrid data={data} columns={columns} />
+            <DataGrid data={data} columns={columns} onSort={handleSort} />
           )}
         </ErrorBoundary>
       </main>
     </div>
   );
 }
-
 export default App;
