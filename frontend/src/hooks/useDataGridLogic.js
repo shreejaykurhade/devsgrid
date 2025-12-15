@@ -7,6 +7,7 @@ export default function useDataGridLogic(data, onCellEdit, onSelectionChange, on
     const [isDragging, setIsDragging] = useState(false);
     const [dragStartRow, setDragStartRow] = useState(null);
     const selectionBeforeDrag = useRef(new Set());
+    const didDragRef = useRef(false);
 
     // --- 2. Edit State ---
     const [editingCell, setEditingCell] = useState(null);
@@ -23,40 +24,111 @@ export default function useDataGridLogic(data, onCellEdit, onSelectionChange, on
 
 
     // --- Selection Handlers ---
-    const handleRowClick = useCallback((rowIndex, isShiftClick) => {
-        if (isDragging) return;
+    // Hybrid Model: Exclusive Click, Additive Drag
+    // 1. MouseDown: Prepare, but don't commit exclusive clear yet (wait to see if drag).
+    //    BUT we need visual feedback.
+    //    Compromise: 
+    //    - If Ctrl/Shift: Handle immediately.
+    //    - If Normal: 
+    //      - If clicking unselected: Select immediately (Exclusive).
+    //      - If clicking selected: Wait (might be drag start).
+    //    Wait, "Select multiple bulks" -> User wants Drag to be Additive.
 
-        if (isShiftClick && lastClickedRowRef.current !== null) {
-            const start = Math.min(lastClickedRowRef.current, rowIndex);
-            const end = Math.max(lastClickedRowRef.current, rowIndex);
-            const newSelection = new Set(selectedRows);
-            for (let i = start; i <= end; i++) newSelection.add(i);
-            setSelectedRows(newSelection);
-        } else {
-            const newSelection = new Set(selectedRows);
-            if (newSelection.has(rowIndex)) newSelection.delete(rowIndex);
-            else newSelection.add(rowIndex);
-            setSelectedRows(newSelection);
-            lastClickedRowRef.current = rowIndex;
+    const handleRowMouseDown = useCallback((e, rowIndex) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault();
+
+        const isCtrl = e.ctrlKey || e.metaKey;
+        const isShift = e.shiftKey;
+
+        didDragRef.current = false; // Reset drag flag
+
+        // 1. Modifiers (Standard)
+        if (isShift || isCtrl) {
+            if (isShift && lastClickedRowRef.current !== null) {
+                const start = Math.min(lastClickedRowRef.current, rowIndex);
+                const end = Math.max(lastClickedRowRef.current, rowIndex);
+                const newSelection = new Set(selectedRows);
+                // If you want Shift to be additive range (safe):
+                if (!isCtrl) newSelection.clear();
+                for (let i = start; i <= end; i++) newSelection.add(i);
+                setSelectedRows(newSelection);
+                lastClickedRowRef.current = rowIndex; // Anchor for next shift-click
+                return;
+            }
+            if (isCtrl) {
+                const newSelection = new Set(selectedRows);
+                if (newSelection.has(rowIndex)) newSelection.delete(rowIndex); // Toggle
+                else newSelection.add(rowIndex);
+                setSelectedRows(newSelection);
+                lastClickedRowRef.current = rowIndex;
+
+                // Drag Init for Ctrl (allows dragging the toggled selection)
+                setIsDragging(true);
+                setDragStartRow(rowIndex);
+                selectionBeforeDrag.current = newSelection; // Snapshot the state AFTER the toggle
+                return;
+            }
         }
-    }, [isDragging, selectedRows]);
 
-    const handleRowMouseDown = useCallback((rowIndex) => {
+        // 2. Normal Click (No Modifiers)
+        // Hybrid: Drag adds, Click replaces.
+
+        // Always Start Drag assuming Additive from current state
         setIsDragging(true);
         setDragStartRow(rowIndex);
-        selectionBeforeDrag.current = new Set(selectedRows);
-        const newSelection = new Set(selectedRows);
-        newSelection.add(rowIndex);
-        setSelectedRows(newSelection);
+        selectionBeforeDrag.current = new Set(selectedRows); // Snapshot the selection BEFORE this click potentially changes it
         lastClickedRowRef.current = rowIndex;
+
+        // Visual handling for immediate feedback:
+        // If the clicked row is not already selected, select it exclusively for immediate feedback.
+        // If it is selected, keep the current selection (to allow dragging the group).
+        // The final exclusive selection for a non-drag click will be handled in handleRowClick.
+        if (!selectedRows.has(rowIndex)) {
+            setSelectedRows(new Set([rowIndex]));
+        }
+
     }, [selectedRows]);
+
+    // Handle Row Click (MouseUp logic effectively)
+    const handleRowClick = useCallback((e, rowIndex) => {
+        // This fires after MouseDown and potential MouseEnter (drag).
+        // If a drag occurred, didDragRef.current would be true, and selection is already handled by MouseEnter.
+        // If no drag occurred (it was just a click), then we enforce exclusive selection.
+        if (!didDragRef.current) {
+            const isCtrl = e.ctrlKey || e.metaKey;
+            const isShift = e.shiftKey;
+
+            // If modifiers were used, selection was already handled in MouseDown.
+            if (isCtrl || isShift) {
+                return;
+            }
+
+            // Normal click without drag: Exclusive selection
+            setSelectedRows(new Set([rowIndex]));
+        }
+        // Reset drag state if it was a click (not a drag)
+        setIsDragging(false);
+        setDragStartRow(null);
+    }, []);
 
     const handleRowMouseEnter = useCallback((rowIndex) => {
         if (isDragging && dragStartRow !== null) {
+            // If we enter a new row while dragging, it's a drag!
+            if (rowIndex !== dragStartRow) {
+                didDragRef.current = true;
+            }
             const start = Math.min(dragStartRow, rowIndex);
             const end = Math.max(dragStartRow, rowIndex);
+
+            // Standard Drag: "Paint" the selection?
+            // Or "Range" from Start?
+            // Excel: Dragging extends selection from Anchor.
+
             const newSelection = new Set(selectionBeforeDrag.current);
-            for (let i = start; i <= end; i++) newSelection.add(i);
+            // Add range
+            for (let i = start; i <= end; i++) {
+                newSelection.add(i);
+            }
             setSelectedRows(newSelection);
         }
     }, [isDragging, dragStartRow]);
@@ -190,15 +262,27 @@ export default function useDataGridLogic(data, onCellEdit, onSelectionChange, on
 
     const togglePinRow = useCallback(() => {
         if (!rowContextMenu) return;
-        const rowIndex = rowContextMenu.rowIndex;
+        const targetIndex = rowContextMenu.rowIndex;
+
         setPinnedRows(prev => {
             const newPinned = new Set(prev);
-            if (newPinned.has(rowIndex)) newPinned.delete(rowIndex);
-            else newPinned.add(rowIndex);
+            const isTargetSelected = selectedRows.has(targetIndex);
+
+            // If target is part of selection, toggle ALL selected rows based on target's new state
+            // If target is NOT selected, only toggle target
+            const rowsToToggle = isTargetSelected ? Array.from(selectedRows) : [targetIndex];
+
+            const shouldPin = !newPinned.has(targetIndex); // Toggle based on clicked row
+
+            rowsToToggle.forEach(idx => {
+                if (shouldPin) newPinned.add(idx);
+                else newPinned.delete(idx);
+            });
+
             return newPinned;
         });
         setRowContextMenu(null);
-    }, [rowContextMenu]);
+    }, [rowContextMenu, selectedRows]);
 
     const handleDeleteRow = useCallback(() => {
         if (!rowContextMenu) return;

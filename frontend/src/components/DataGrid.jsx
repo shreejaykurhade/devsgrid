@@ -1,20 +1,13 @@
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import useDataGridLogic from '../hooks/useDataGridLogic';
 
-/**
- * Custom Virtualized Grid
- * "Make your own window" implementation.
- */
-
 const ROW_HEIGHT = 45;
 const OVERSCAN = 5;
 
 export default function DataGrid({ data, columns, onCellEdit, onSelectionChange, onDeleteRow, onDeleteRows }) {
-    // 1. Container Refs
     const containerRef = useRef(null);
     const headerRef = useRef(null);
 
-    // --- USE CUSTOM HOOK FOR LOGIC ---
     const {
         selectedRows,
         editingCell,
@@ -33,7 +26,7 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
         handleRowMouseEnter,
         handleCellDoubleClick,
         saveEdit,
-        cancelEdit, // Correctly exported now
+        cancelEdit,
         handleEditChange,
         handleEditKeyDown,
         getColumnDataType,
@@ -49,43 +42,30 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
         setIsDragging
     } = useDataGridLogic(data, onCellEdit, onSelectionChange, onDeleteRow, onDeleteRows);
 
-    // 2. Scroll State (Visual only)
     const [scrollTop, setScrollTop] = useState(0);
     const [containerHeight, setContainerHeight] = useState(0);
 
-    // 3. Setup Resize Observer
     useEffect(() => {
         if (!containerRef.current) return;
         const observer = new ResizeObserver(entries => {
-            for (let entry of entries) {
-                setContainerHeight(entry.contentRect.height);
-            }
+            for (let entry of entries) setContainerHeight(entry.contentRect.height);
         });
         observer.observe(containerRef.current);
         return () => observer.disconnect();
     }, []);
 
-    // 4. Handle Scroll
     const handleScroll = (e) => {
         const { scrollTop, scrollLeft } = e.target;
         setScrollTop(scrollTop);
-        if (headerRef.current) {
-            headerRef.current.scrollLeft = scrollLeft;
-        }
+        if (headerRef.current) headerRef.current.scrollLeft = scrollLeft;
     };
 
-    // 5. Measure Column Widths (Auto + Resizing)
     const [colWidths, setColWidths] = useState({});
     const resizingRef = useRef(null);
 
     const handleResizeStart = (e, colName, currentWidth) => {
-        e.preventDefault();
-        e.stopPropagation();
-        resizingRef.current = {
-            colName,
-            startX: e.clientX,
-            startWidth: currentWidth
-        };
+        e.preventDefault(); e.stopPropagation();
+        resizingRef.current = { colName, startX: e.clientX, startWidth: currentWidth };
         document.addEventListener('mousemove', handleResizeMove);
         document.addEventListener('mouseup', handleResizeEnd);
         document.body.style.cursor = 'col-resize';
@@ -93,14 +73,8 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
 
     const handleResizeMove = (e) => {
         if (!resizingRef.current) return;
-        const { colName, startX, startWidth } = resizingRef.current;
-        const diff = e.clientX - startX;
-        const newWidth = Math.max(50, startWidth + diff);
-
-        setColWidths(prev => ({
-            ...prev,
-            [colName]: newWidth
-        }));
+        const diff = e.clientX - resizingRef.current.startX;
+        setColWidths(prev => ({ ...prev, [resizingRef.current.colName]: Math.max(50, resizingRef.current.startWidth + diff) }));
     };
 
     const handleResizeEnd = () => {
@@ -115,85 +89,57 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
     useEffect(() => {
         if (!data || data.length === 0 || !columns) return;
         const newWidths = {};
-        const MAX_WIDTH = 400;
-        const MIN_WIDTH = 100;
-        const CHAR_WIDTH = 9;
-
-        const sampleSize = Math.min(data.length, 50);
-        const sampleData = data.slice(0, sampleSize);
-
+        const sampleData = data.slice(0, 50);
         columns.forEach(col => {
             let maxLen = col.length;
-            sampleData.forEach(row => {
-                const val = row[col];
-                if (val) {
-                    const strLen = String(val).length;
-                    if (strLen > maxLen) maxLen = strLen;
-                }
-            });
-            let calculated = (maxLen * CHAR_WIDTH) + 30;
-            calculated = Math.max(MIN_WIDTH, Math.min(calculated, MAX_WIDTH));
-            newWidths[col] = calculated;
+            sampleData.forEach(row => { if (row[col]) { const l = String(row[col]).length; if (l > maxLen) maxLen = l; } });
+            let w = (maxLen * 9) + 40;
+            newWidths[col] = Math.max(100, Math.min(w, 400));
         });
         setColWidths(newWidths);
     }, [data, columns]);
 
-
-    // 6. Calculate Layout
     const columnLayout = useMemo(() => {
         if (!data || data.length === 0) return { columns: [], totalWidth: 0 };
+        const visibleCols = columns.filter(c => !hiddenColumns.has(c));
+        const frozenColsList = visibleCols.filter(c => frozenColumns.has(c));
+        const unfrozenColsList = visibleCols.filter(c => !frozenColumns.has(c));
 
         const rowNumWidth = 60;
-        const rowNumCol = {
-            name: '#',
-            width: rowNumWidth,
-            offset: 0,
-            isRowNumber: true
-        };
+        const rowNumCol = { name: '#', width: rowNumWidth, offset: 0, isRowNumber: true, isSticky: true, stickyLeft: 0, zIndex: 5 };
 
         let currentOffset = rowNumWidth;
-        const visibleColumns = columns.filter(col => !hiddenColumns.has(col));
+        let cumulativeStickyLeft = rowNumWidth;
 
-        const mapLayout = visibleColumns.map(col => {
-            const customWidth = colWidths[col];
-            const width = customWidth || 150;
-            const colDef = {
-                name: col,
-                width: width,
-                offset: currentOffset
-            };
-            currentOffset += width;
-            return colDef;
+        const mappedFrozen = frozenColsList.map(col => {
+            const width = colWidths[col] || 150;
+            const def = { name: col, width, offset: currentOffset, isSticky: true, stickyLeft: cumulativeStickyLeft, zIndex: 4 };
+            currentOffset += width; cumulativeStickyLeft += width;
+            return def;
         });
 
-        const layout = [rowNumCol, ...mapLayout];
-        return { columns: layout, totalWidth: currentOffset };
-    }, [columns, colWidths, data, hiddenColumns]);
+        const mappedUnfrozen = unfrozenColsList.map(col => {
+            const width = colWidths[col] || 150;
+            const def = { name: col, width, offset: currentOffset, isSticky: false, zIndex: 1 };
+            currentOffset += width;
+            return def;
+        });
 
-    if (!columns || columns.length === 0) {
-        return <div className="p-10 text-center text-gray-500">No data loaded</div>;
-    }
+        return { columns: [rowNumCol, ...mappedFrozen, ...mappedUnfrozen], totalWidth: currentOffset };
+    }, [columns, colWidths, data, hiddenColumns, frozenColumns]);
 
     const { columns: colDefs, totalWidth } = columnLayout;
 
-    // 7. Calculate Virtualization
     const totalHeight = data.length * ROW_HEIGHT;
     const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-    const endIndex = Math.min(
-        data.length,
-        Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN
-    );
+    const endIndex = Math.min(data.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
 
     const visibleRows = [];
-    for (let i = startIndex; i < endIndex; i++) {
-        visibleRows.push({ index: i, data: data[i], top: i * ROW_HEIGHT });
-    }
+    for (let i = startIndex; i < endIndex; i++) visibleRows.push({ index: i, data: data[i], top: i * ROW_HEIGHT });
 
-    const pinnedRowsArray = Array.from(pinnedRows).sort((a, b) => a - b).map(idx => ({
-        index: idx,
-        data: data[idx]
-    }));
+    const pinnedRowsArray = Array.from(pinnedRows).sort((a, b) => a - b).map(idx => ({ index: idx, data: data[idx] }));
 
+    // --- RENDER ROW ---
     const renderRow = (row, isPinned = false) => {
         const isSelected = selectedRows.has(row.index);
         const isEven = row.index % 2 === 0;
@@ -203,12 +149,25 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
             <div
                 key={isPinned ? `pinned-${row.index}` : row.index}
                 onContextMenu={(e) => handleRowContextMenu(e, row.index)}
+                // SELECTION HANDLERS MOVED HERE (Whole Row)
+                onMouseDown={(e) => {
+                    if (e.button !== 0) return; // Only left click
+                    // Don't trigger start drag if clicking input
+                    if (e.target.tagName === 'INPUT') return;
+                    handleRowMouseDown(e, row.index);
+                }}
+                onClick={(e) => {
+                    // Check if input again just in case (though propagation might be stopped)
+                    if (e.target.tagName === 'INPUT') return;
+                    handleRowClick(e, row.index);
+                }}
                 onMouseEnter={() => handleRowMouseEnter(row.index)}
                 style={{
                     position: isPinned ? 'relative' : 'absolute',
                     top: isPinned ? 'auto' : row.top,
                     left: 0,
-                    width: '100%',
+                    width: totalWidth, // Ensure background covers full scroll width
+                    minWidth: '100%',  // Ensure it at least fills container
                     height: ROW_HEIGHT,
                     display: 'flex',
                     borderBottom: '1px solid #f0f0f0',
@@ -216,50 +175,31 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
                     alignItems: 'center',
                     boxSizing: 'border-box',
                 }}
-                className="grid-row"
             >
-                {colDefs.map((col, colIndex) => {
-                    // Frozen Logic
-                    const isFrozen = frozenColumns.has(col.name);
-                    // Simple logic: if row number (index 0) OR explicit frozen set
-                    // We assume user freezes from left. 
-                    // Row Number is always sticky? Yes usually.
-                    const isRowNumber = col.isRowNumber;
-                    const shouldSticky = isRowNumber || isFrozen;
-
-                    // Left offset: 
-                    // If row number: 0
-                    // If first frozen data col: 60 (width of row num)
-                    // If multiple... simplistic assumption: stack at 60 for now to avoid complexity without order tracking
-                    // Ideally we use col.offset from layout if it reflects frozen state, but standard layout is flow.
-                    // Let's use simplified stack: 
-                    const stickyLeft = isRowNumber ? 0 : 60;
+                {colDefs.map((col) => {
+                    const { isRowNumber, isSticky, stickyLeft, zIndex } = col;
 
                     if (isRowNumber) {
                         return (
                             <div
                                 key={col.name}
-                                onMouseDown={(e) => handleRowMouseDown(row.index)}
-                                onClick={(e) => handleRowClick(row.index, e.shiftKey)}
                                 style={{
                                     width: col.width,
                                     minWidth: col.width,
                                     height: '100%',
-                                    padding: '0 12px',
-                                    borderRight: '1px solid #dcdcdc',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     background: '#f8f9fa',
-                                    zIndex: isPinned ? 6 : 3, // Higher z-index for row num
+                                    borderRight: '1px solid #dcdcdc',
                                     position: 'sticky',
                                     left: 0,
-                                    fontFamily: 'inherit',
-                                    fontSize: '12px',
-                                    fontWeight: '600',
-                                    color: '#6c757d',
+                                    zIndex: isPinned ? 10 : 5,
+                                    cursor: 'pointer',
                                     userSelect: 'none',
-                                    cursor: 'pointer'
+                                    color: '#6c757d',
+                                    fontSize: '12px',
+                                    fontWeight: '600'
                                 }}
                             >
                                 {isPinned ? '🔒' : ''} {row.index + 1}
@@ -274,27 +214,30 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
                     return (
                         <div
                             key={col.name}
-                            onDoubleClick={() => !isPinned && handleCellDoubleClick(row.index, col.name, rawValue || '')}
+                            onDoubleClick={(e) => {
+                                e.stopPropagation(); // Prevent selection toggle when dbl clicking?
+                                !isPinned && handleCellDoubleClick(row.index, col.name, rawValue || '');
+                            }}
                             style={{
                                 width: col.width,
                                 minWidth: col.width,
+                                height: '100%',
                                 padding: '0 12px',
+                                borderRight: '1px solid transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                position: isSticky ? 'sticky' : 'relative',
+                                left: isSticky ? stickyLeft : 'auto',
+                                zIndex: isPinned ? (zIndex + 5) : zIndex,
+                                background: isSticky ? (isSelected ? '#e3f2fd' : (isPinned ? '#fcfcfc' : bg)) : 'transparent',
                                 fontSize: '13px',
                                 color: isMissing ? '#d32f2f' : '#212b36',
                                 fontWeight: isMissing ? '600' : '400',
                                 fontStyle: isMissing ? 'italic' : 'normal',
-                                overflow: 'hidden',
                                 whiteSpace: 'nowrap',
+                                overflow: 'hidden',
                                 textOverflow: 'ellipsis',
-                                height: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                borderRight: '1px solid transparent',
-                                cursor: 'text',
-                                position: shouldSticky ? 'sticky' : 'relative',
-                                left: shouldSticky ? stickyLeft : 'auto',
-                                zIndex: shouldSticky ? (isPinned ? 5 : 2) : 'auto',
-                                background: shouldSticky ? (isSelected ? '#e3f2fd' : (isPinned ? '#fcfcfc' : bg)) : 'transparent'
+                                cursor: 'text'
                             }}
                             title={!isMissing ? String(rawValue) : 'Missing Data'}
                         >
@@ -304,17 +247,15 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
                                     type="text"
                                     value={editingCell.value}
                                     onChange={(e) => handleEditChange(e, col.name)}
+                                    // Stop propagation to prevent row click
+                                    onClick={(e) => e.stopPropagation()}
+                                    onMouseDown={(e) => e.stopPropagation()}
                                     onBlur={saveEdit}
                                     onKeyDown={handleEditKeyDown}
                                     style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        border: '2px solid #0052cc',
-                                        outline: 'none',
-                                        padding: '0 8px',
-                                        background: '#fff',
-                                        fontSize: '13px',
-                                        fontFamily: 'inherit'
+                                        width: '100%', height: '100%',
+                                        border: '2px solid #0052cc', outline: 'none',
+                                        padding: '0 8px', background: '#fff', fontSize: '13px', fontFamily: 'inherit'
                                     }}
                                 />
                             ) : (
@@ -327,141 +268,13 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
         );
     };
 
+    if (!columns || columns.length === 0) return <div className="p-10 text-center text-gray-500">No data loaded</div>;
     const hasCustomLayout = Object.keys(colWidths).length > 0;
 
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative' }}>
 
-            {/* Context Menu (Header) */}
-            {contextMenu && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        top: contextMenu.y,
-                        left: contextMenu.x,
-                        background: '#ffffff',
-                        border: '1px solid #c4cdd5',
-                        borderRadius: '4px',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                        zIndex: 1000,
-                        minWidth: '150px'
-                    }}
-                >
-                    <div
-                        onClick={toggleFreezeColumn}
-                        style={{
-                            padding: '8px 16px',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            color: '#212b36',
-                            borderBottom: '1px solid #f0f0f0'
-                        }}
-                    >
-                        {frozenColumns.has(contextMenu.column) ? '🔓 Unfreeze Column' : '❄️ Freeze Column'}
-                    </div>
-                    <div
-                        onClick={hideColumn}
-                        style={{
-                            padding: '8px 16px',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            color: '#212b36',
-                            borderBottom: '1px solid #f0f0f0'
-                        }}
-                    >
-                        🙈 Hide Column
-                    </div>
-                    <div
-                        onClick={() => setHiddenColumns(new Set())}
-                        style={{
-                            padding: '8px 16px',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            color: '#212b36'
-                        }}
-                    >
-                        👁️ Show All Columns
-                    </div>
-                </div>
-            )}
-
-            {/* RESET BUTTON LAYOVER */}
-            {hasCustomLayout && (
-                <div style={{
-                    position: 'absolute',
-                    top: 10,
-                    right: 20,
-                    zIndex: 200
-                }}>
-                    <button
-                        onClick={resetLayout}
-                        style={{
-                            background: '#ff5722',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            padding: '4px 8px',
-                            fontSize: '11px',
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                        }}
-                    >
-                        Reset Layout
-                    </button>
-                </div>
-            )}
-
-            {/* Row Context Menu */}
-            {rowContextMenu && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        top: rowContextMenu.y,
-                        left: rowContextMenu.x,
-                        background: '#ffffff',
-                        border: '1px solid #c4cdd5',
-                        borderRadius: '4px',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                        zIndex: 1000,
-                        minWidth: '150px'
-                    }}
-                >
-                    {selectedRows.size > 1 && selectedRows.has(rowContextMenu.rowIndex) ? (
-                        <>
-                            <div
-                                onClick={() => handleCopySelection(columns)}
-                                style={{ padding: '8px 16px', cursor: 'pointer', fontSize: '13px', color: '#212b36', borderBottom: '1px solid #f0f0f0' }}
-                            >
-                                📋 Copy {selectedRows.size} Rows
-                            </div>
-                            <div
-                                onClick={handleBulkDelete}
-                                style={{ padding: '8px 16px', cursor: 'pointer', fontSize: '13px', color: '#d32f2f' }}
-                            >
-                                🗑️ Delete {selectedRows.size} Rows
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div
-                                onClick={togglePinRow}
-                                style={{ padding: '8px 16px', cursor: 'pointer', fontSize: '13px', color: '#212b36', borderBottom: '1px solid #f0f0f0' }}
-                            >
-                                {pinnedRows.has(rowContextMenu.rowIndex) ? '🔓 Unlock Row' : '🔒 Lock Row (Top)'}
-                            </div>
-                            <div
-                                onClick={handleDeleteRow}
-                                style={{ padding: '8px 16px', cursor: 'pointer', fontSize: '13px', color: '#d32f2f' }}
-                            >
-                                🗑️ Delete Row
-                            </div>
-                        </>
-                    )}
-                </div>
-            )}
-
-
-            {/* Header (Separate div, NOW ON TOP) */}
+            {/* Header */}
             <div
                 ref={headerRef}
                 style={{
@@ -471,101 +284,107 @@ export default function DataGrid({ data, columns, onCellEdit, onSelectionChange,
                     overflow: 'hidden',
                     flexShrink: 0,
                     position: 'relative',
-                    zIndex: 10
+                    zIndex: 20
                 }}
             >
                 <div style={{ display: 'flex', width: totalWidth }}>
-                    {colDefs.map((col, colIndex) => {
-                        // Frozen Logic
-                        const isFrozen = frozenColumns.has(col.name);
-                        const isRowNumber = col.isRowNumber;
-                        const shouldSticky = isRowNumber || isFrozen;
-                        const stickyLeft = isRowNumber ? 0 : 60;
-
+                    {colDefs.map((col) => {
                         return (
                             <div
                                 key={col.name}
                                 onContextMenu={!col.isRowNumber ? (e) => handleHeaderRightClick(e, col.name) : undefined}
                                 style={{
-                                    width: col.width,
-                                    minWidth: col.width,
-                                    height: '100%',
-                                    padding: '0 12px',
-                                    borderRight: '1px solid #dfe3e8',
-                                    fontWeight: '600',
-                                    color: '#454f5b',
-                                    fontSize: '13px',
-                                    textTransform: 'none',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    boxSizing: 'border-box',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    position: shouldSticky ? 'sticky' : 'relative',
-                                    left: shouldSticky ? stickyLeft : 'auto',
-                                    zIndex: shouldSticky ? 4 : 'auto', // RowNum is usually sticky. 4 to be above normal cells but below active menus? 
-                                    background: '#f4f6f8',
-                                    userSelect: 'none'
+                                    width: col.width, minWidth: col.width, height: '100%', padding: '0 12px', borderRight: '1px solid #dfe3e8',
+                                    display: 'flex', alignItems: 'center', position: col.isSticky ? 'sticky' : 'relative',
+                                    left: col.isSticky ? col.stickyLeft : 'auto', zIndex: col.zIndex + 10,
+                                    background: '#f4f6f8', fontWeight: '600', color: '#454f5b', fontSize: '13px', userSelect: 'none'
                                 }}
-                                title={col.name}
                             >
-                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {col.name}
-                                </span>
-
-                                {/* DRAG HANDLE */}
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{col.name}</span>
                                 {!col.isRowNumber && (
                                     <div
                                         onMouseDown={(e) => handleResizeStart(e, col.name, col.width)}
-                                        style={{
-                                            position: 'absolute',
-                                            right: 0,
-                                            top: 0,
-                                            height: '100%',
-                                            width: '8px',
-                                            cursor: 'col-resize',
-                                            zIndex: 10,
-                                        }}
-                                        className="resize-handle"
+                                        style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: '8px', cursor: 'col-resize', zIndex: 10 }}
                                     />
                                 )}
                             </div>
                         );
-                    })}</div>
+                    })}
+                </div>
             </div>
 
-            {/* PINNED ROWS SECTION */}
-            {pinnedRowsArray.length > 0 && (
-                <div style={{
-                    maxHeight: '150px',
-                    overflowY: 'auto',
-                    borderBottom: '2px solid #0052cc',
-                    flexShrink: 0,
-                    position: 'relative',
-                    background: '#fff',
-                    zIndex: 20
-                }}>
-                    {pinnedRowsArray.map(row => renderRow(row, true))}
-                </div>
-            )}
-
-            {/* VIRTUAL BODY */}
+            {/* Main Body */}
             <div
                 ref={containerRef}
                 onScroll={handleScroll}
                 style={{
                     flex: 1,
-                    overflow: 'auto',
+                    // Force horizontal scrollbar to ALWAYS be visible ('scroll')
+                    // Vertical can be auto
+                    overflowX: 'scroll',
+                    overflowY: 'auto',
                     position: 'relative',
-                    willChange: 'transform' // GPU hint
+                    willChange: 'transform'
                 }}
             >
+                {/* Sticky Pinned Rows */}
+                {pinnedRowsArray.length > 0 && (
+                    <div style={{ position: 'sticky', top: 0, zIndex: 15, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                        {pinnedRowsArray.map(row => renderRow(row, true))}
+                    </div>
+                )}
+                {/* Virtual Rows */}
                 <div style={{ height: totalHeight, position: 'relative' }}>
                     {visibleRows.map(row => renderRow(row, false))}
                 </div>
             </div>
 
+            {/* Menus */}
+            {contextMenu && (
+                <div style={{
+                    position: 'fixed', top: contextMenu.y, left: contextMenu.x,
+                    background: '#fff', border: '1px solid #c4cdd5', borderRadius: '4px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: '150px'
+                }}>
+                    <div onClick={toggleFreezeColumn} className="ctx-item" style={{ padding: '8px 16px', cursor: 'pointer', borderBottom: '1px solid #eee' }}>
+                        {frozenColumns.has(contextMenu.column) ? '🔓 Unfreeze' : '❄️ Freeze'}
+                    </div>
+                    <div onClick={hideColumn} className="ctx-item" style={{ padding: '8px 16px', cursor: 'pointer', borderBottom: '1px solid #eee' }}>🙈 Hide</div>
+                    <div onClick={() => setHiddenColumns(new Set())} className="ctx-item" style={{ padding: '8px 16px', cursor: 'pointer' }}>👁️ Show All</div>
+                </div>
+            )}
+
+            {rowContextMenu && (
+                <div style={{
+                    position: 'fixed', top: rowContextMenu.y, left: rowContextMenu.x,
+                    background: '#fff', border: '1px solid #c4cdd5', borderRadius: '4px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: '150px'
+                }}>
+                    <div style={{ padding: '8px 16px', background: '#f4f6f8', borderBottom: '1px solid #eee', fontSize: '11px', color: '#666', fontWeight: 600 }}>
+                        ROW: {rowContextMenu.rowIndex + 1}
+                    </div>
+                    {selectedRows.size > 1 && selectedRows.has(rowContextMenu.rowIndex) ? (
+                        <>
+                            <div onClick={() => handleCopySelection(columns)} style={{ padding: '8px 16px', cursor: 'pointer', borderBottom: '1px solid #eee' }}>📋 Copy {selectedRows.size} Rows</div>
+                            <div onClick={handleBulkDelete} style={{ padding: '8px 16px', cursor: 'pointer', color: 'red' }}>🗑️ Delete {selectedRows.size} Rows</div>
+                        </>
+                    ) : (
+                        <>
+                            <div onClick={togglePinRow} style={{ padding: '8px 16px', cursor: 'pointer', borderBottom: '1px solid #eee' }}>
+                                {pinnedRows.has(rowContextMenu.rowIndex) ? '🔓 Unlock Row' : '🔒 Lock Row (Top)'}
+                            </div>
+                            <div onClick={handleDeleteRow} style={{ padding: '8px 16px', cursor: 'pointer', color: 'red' }}>🗑️ Delete Row</div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {hasCustomLayout && (
+                <button onClick={resetLayout} style={{
+                    position: 'absolute', top: 50, right: 20, zIndex: 200,
+                    background: '#ff5722', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer'
+                }}>Reset Layout</button>
+            )}
         </div>
     );
 }
