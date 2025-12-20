@@ -56,11 +56,31 @@ self.onmessage = (e) => {
                 const jsonText = decoder.decode(buffer);
                 const json = JSON.parse(jsonText);
                 rows = Array.isArray(json) ? json : (json.data || []);
+
+                // Strict JSON Validation
+                if (!Array.isArray(rows)) {
+                    throw new Error("Invalid JSON format: Expected an array or an object with a 'data' array.");
+                }
+                if (rows.length > 0 && typeof rows[0] !== 'object') {
+                    throw new Error("Invalid JSON format: Array must contain objects, not primitives.");
+                }
+
             } else {
                 const wb = XLSX.read(buffer, { type: 'array' });
+                if (wb.SheetNames.length === 0) {
+                    throw new Error("No sheets found in file");
+                }
                 const wsname = wb.SheetNames[0];
                 const ws = wb.Sheets[wsname];
                 rows = XLSX.utils.sheet_to_json(ws, { defval: "NA" });
+            }
+
+            // General Validation for all formats
+            if (!Array.isArray(rows) || rows.length === 0) {
+                throw new Error("File contains no parseable data.");
+            }
+            if (rows.length > 0 && typeof rows[0] !== 'object') {
+                throw new Error("Invalid data format: Rows must be objects.");
             }
 
             // Initialize masterData with IDs

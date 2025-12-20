@@ -303,7 +303,7 @@ function App() {
                 id="file-upload"
                 name="file-upload"
                 onChange={handleFileUpload}
-                accept=".csv, .xlsx, .xls, .json"
+                accept=".csv, .xlsx, .xls, .json, .tsv, .ods, .xml, .txt"
               />
             </div>
 
